@@ -1,7 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+import 'Themes/theme.dart';
+import 'Themes/theme_provider.dart';
 
 void main() {
-  runApp(const MyApp());
+  runApp(
+    ChangeNotifierProvider(
+      create: (context) => ThemeNotifier(),
+      child: const MyApp(),
+    )
+  );
 }
 
 class MyApp extends StatelessWidget {
@@ -10,12 +19,16 @@ class MyApp extends StatelessWidget {
   // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Flutter Demo',
-      theme: ThemeData(
-        brightness: Brightness.dark
-      ),
-      home: const MyHomePage(title: 'Tasks'),
+    return Consumer<ThemeNotifier>(
+        builder: (context, themeNotifier, child){
+          return MaterialApp(
+            title: 'Flutter Demo',
+            theme: AppThemes.lightTheme,
+            darkTheme: AppThemes.darkTheme,
+            themeMode: themeNotifier.themeMode,
+            home: const MyHomePage(title: 'Tasks'),
+          );
+        }
     );
   }
 }
@@ -62,28 +75,41 @@ class _MyHomePageState extends State<MyHomePage> {
 
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
     return Scaffold(
       appBar: AppBar(
-        // TRY THIS: Try changing the color here to a specific color (to
-        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-        // change color while the other colors stay the same.
         backgroundColor: Colors.transparent,
         toolbarHeight: 70.0,
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
         title: Text(widget.title,
           style: TextStyle(
             fontSize: 34,
             fontWeight: FontWeight.w800,
-            color: Colors.deepOrange
+            color: Theme.of(context).colorScheme.primary
           ),
         ),
+
+        actions: <Widget>[
+          PopupMenuButton<ThemeMode>(
+              initialValue: context.watch<ThemeNotifier>().themeMode,
+              icon: const Icon(Icons.palette),
+              onSelected: (ThemeMode newMode){
+                context.read<ThemeNotifier>().setThemeMode(newMode);
+              },
+              itemBuilder: (context) => <PopupMenuEntry<ThemeMode>>[
+                const PopupMenuItem<ThemeMode>(
+                  value: ThemeMode.system,
+                  child: Text("System Default"),
+                ),
+                const PopupMenuItem<ThemeMode>(
+                  value: ThemeMode.light,
+                  child: Text("Light Mode"),
+                ),
+                const PopupMenuItem<ThemeMode>(
+                  value: ThemeMode.dark,
+                  child: Text("Dark Mode"),
+                ),
+              ],
+          )
+        ],
       ),
       body: ListView(
           children: <Widget>[
@@ -94,9 +120,10 @@ class _MyHomePageState extends State<MyHomePage> {
         onPressed: _incrementCounter,
         tooltip: 'Increment',
         child: const Icon(Icons.add),
-        backgroundColor: Colors.deepOrange,
+        backgroundColor: Theme.of(context).colorScheme.primary,
 
-      ), // This trailing comma makes auto-formatting nicer for build methods.
+      ),
+      // This trailing comma makes auto-formatting nicer for build methods.
 
     );
   }
