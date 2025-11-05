@@ -43,8 +43,8 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
   List<Widget> _widgetList = [];
+  SizedBox taskSpacer = const SizedBox(height: 5);
 
   void _showForm() async{
     final result = await showDialog<Map<String, dynamic>>(
@@ -53,22 +53,24 @@ class _MyHomePageState extends State<MyHomePage> {
           return const TaskForm();
         }
     );
+    if (result != null){
+      _incrementCounter(result);
+    }
   }
 
-  void _incrementCounter() {
+  void _incrementCounter(Map<String, dynamic> taskData) {
     setState(() {
-      _counter++;
-      DateTime now = DateTime.now();
-
       Widget newWidget = Card(
         child: Padding(
             padding: EdgeInsets.all(15.0),
             child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            Text("Task #$_counter"),
-            Text("$now"),
-            Text("6:30 P.M.")
+            Text(taskData['name']),
+            taskSpacer,
+            Text("Due: ${taskData['date']}"),
+            taskSpacer,
+            Text("@ ${taskData['time']}")
           ],
         ),
         ),
@@ -77,7 +79,6 @@ class _MyHomePageState extends State<MyHomePage> {
         _widgetList.add(newWidget);
         //pang clear lol
       //_widgetList = [];
-      //_counter = 0;
 
     });
   }
@@ -156,7 +157,7 @@ class _TaskFormState extends State<TaskForm>{
     if (_slctdate == null){
       return "";
     }
-    return "${_slctdate!.day}/${_slctdate!.month}/${_slctdate}";
+    return "${_slctdate!.day}/${_slctdate!.month}/${_slctdate!.year}";
   }
   String get _fmtTime{
     if(_slcttime == null){
@@ -179,16 +180,40 @@ class _TaskFormState extends State<TaskForm>{
       });
     }
   }
+    //time validator
     void _presentTimePicker() async{
-      final now = TimeOfDay.now();
+      final DateNow = DateTime.now();
       final pickedTime = await showTimePicker(
           context: context,
-          initialTime: _slcttime ?? now
+          initialTime: _slcttime ?? TimeOfDay.now()
       );
       if (pickedTime != null){
-        setState(() {
-          _slcttime = pickedTime;
-        });
+        bool isCurrentDay = _slctdate != null &&
+            _slctdate!.day == DateNow.day &&
+            _slctdate!.month == DateNow.month &&
+            _slctdate!.year == DateNow.year;
+        if(isCurrentDay){
+          final selectedDateTime = DateTime(
+              DateNow.year, DateNow.month, DateNow.day,
+              pickedTime.hour, pickedTime.minute
+          );
+          if (!selectedDateTime.isBefore(DateNow)) {
+            setState(() {
+              _slcttime = pickedTime;
+            });
+        } else{
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text("That time has passed."), duration: Duration(seconds: 2)),
+            );
+          }
+        } else{
+          setState(() {
+            _slcttime = pickedTime;
+          });
+        }
+
+
       }
     }
 
