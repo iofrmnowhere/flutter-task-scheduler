@@ -1,5 +1,8 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
 import 'Themes/theme.dart';
 import 'Themes/theme_provider.dart';
 
@@ -42,6 +45,59 @@ class MyHomePage extends StatefulWidget {
 class _MyHomePageState extends State<MyHomePage> {
   List<Map<String, dynamic>> _tasks = [];
 
+  @override
+  void initState() {
+    super.initState();
+    _loadTasks();
+  }
+
+  // 🔹 Load tasks from SharedPreferences
+  Future<void> _loadTasks() async {
+    final prefs = await SharedPreferences.getInstance();
+    final String? tasksJson = prefs.getString('tasks');
+    if (tasksJson != null) {
+      final List decoded = jsonDecode(tasksJson);
+      setState(() {
+        _tasks = decoded.map((task) {
+          return {
+            "name": task['name'],
+            "date": task['date'],
+            "time": task['time'],
+            "rawDate": task['rawDate'] != null
+                ? DateTime.parse(task['rawDate'])
+                : null,
+            "rawTime": task['rawTime'] != null
+                ? TimeOfDay(
+              hour: task['rawTime']['hour'],
+              minute: task['rawTime']['minute'],
+            )
+                : null,
+          };
+        }).toList();
+      });
+    }
+  }
+
+  // 🔹 Save tasks to SharedPreferences
+  Future<void> _saveTasks() async {
+    final prefs = await SharedPreferences.getInstance();
+    final encoded = jsonEncode(_tasks.map((task) {
+      return {
+        "name": task['name'],
+        "date": task['date'],
+        "time": task['time'],
+        "rawDate": task['rawDate']?.toIso8601String(),
+        "rawTime": task['rawTime'] != null
+            ? {
+          "hour": task['rawTime'].hour,
+          "minute": task['rawTime'].minute,
+        }
+            : null,
+      };
+    }).toList());
+    await prefs.setString('tasks', encoded);
+  }
+
   void _showForm({Map<String, dynamic>? existingTask, int? index}) async {
     final result = await showDialog<Map<String, dynamic>>(
       context: context,
@@ -53,13 +109,12 @@ class _MyHomePageState extends State<MyHomePage> {
     if (result != null) {
       setState(() {
         if (index != null) {
-          // Update existing task
           _tasks[index] = result;
         } else {
-          // Add new task
           _tasks.add(result);
         }
       });
+      await _saveTasks();
     }
   }
 
