@@ -2,11 +2,119 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:timezone/data/latest.dart' as tz;
+import 'package:timezone/timezone.dart' as tz;
 
 import 'Themes/theme.dart';
 import 'Themes/theme_provider.dart';
 
-void main() {
+// Initialize notification plugin
+final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
+FlutterLocalNotificationsPlugin();
+
+Future<void> initializeNotifications() async {
+  const AndroidInitializationSettings initSettingsAndroid =
+  AndroidInitializationSettings('@mipmap/ic_launcher');
+
+  const InitializationSettings initSettings =
+  InitializationSettings(android: initSettingsAndroid);
+
+  await flutterLocalNotificationsPlugin.initialize(initSettings);
+
+  // ✅ Request permission for exact alarms (Android 12+)
+  final bool? granted = await flutterLocalNotificationsPlugin
+      .resolvePlatformSpecificImplementation<
+      AndroidFlutterLocalNotificationsPlugin>()
+      ?.requestExactAlarmsPermission();
+
+  if (granted == false) {
+    debugPrint(
+        "⚠️ Exact alarm permission NOT granted. Notifications may be delayed.");
+  } else {
+    debugPrint("✅ Exact alarm permission granted or not required.");
+  }
+}
+
+Future<void> scheduleTaskNotification(String title, DateTime dateTime) async {
+  final androidPlugin =
+  flutterLocalNotificationsPlugin.resolvePlatformSpecificImplementation<
+      AndroidFlutterLocalNotificationsPlugin>();
+
+  bool exactAllowed = true;
+  if (androidPlugin != null) {
+    final permissionGranted = await androidPlugin.requestExactAlarmsPermission();
+    exactAllowed = permissionGranted ?? true;
+  }
+
+  const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
+    'task_channel',
+    'Task Notifications',
+    channelDescription: 'Notifications for scheduled tasks',
+    importance: Importance.max,
+    priority: Priority.high,
+  );
+
+  const NotificationDetails details = NotificationDetails(android: androidDetails);
+
+  Future<void> safeSchedule(int id, String title, String body, DateTime date) async {
+    final tzTime = tz.TZDateTime.from(date, tz.local);
+    await flutterLocalNotificationsPlugin.zonedSchedule(
+      id,
+      title,
+      body,
+      tzTime,
+      details,
+      androidScheduleMode: exactAllowed
+          ? AndroidScheduleMode.exactAllowWhileIdle
+          : AndroidScheduleMode.inexactAllowWhileIdle,
+      matchDateTimeComponents: DateTimeComponents.dateAndTime,
+    );
+  }
+
+  // 🔔 Main notification at the exact task time
+  await safeSchedule(
+    title.hashCode,
+    'Reminder: $title',
+    'Your task is due now.',
+    dateTime,
+  );
+
+  // 🔔 1 day before
+  final oneDayBefore = dateTime.subtract(const Duration(days: 1));
+  if (oneDayBefore.isAfter(DateTime.now())) {
+    await safeSchedule(
+      title.hashCode + 1,
+      'Heads up: $title',
+      'Your task is due tomorrow.',
+      oneDayBefore,
+    );
+  }
+
+  // 🔔 30 minutes before
+  final thirtyMinutesBefore = dateTime.subtract(const Duration(minutes: 30));
+  if (thirtyMinutesBefore.isAfter(DateTime.now())) {
+    await safeSchedule(
+      title.hashCode + 2,
+      'Upcoming: $title',
+      'Your task starts in 30 minutes.',
+      thirtyMinutesBefore,
+    );
+  }
+}
+
+// ✅ Cancel notifications for a specific task (using title.hashCode)
+Future<void> cancelTaskNotificationsByIdHash(int idHash) async {
+  await flutterLocalNotificationsPlugin.cancel(idHash);
+  await flutterLocalNotificationsPlugin.cancel(idHash + 1);
+  await flutterLocalNotificationsPlugin.cancel(idHash + 2);
+}
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  tz.initializeTimeZones();
+  await initializeNotifications();
+
   runApp(
     ChangeNotifierProvider(
       create: (context) => ThemeNotifier(),
@@ -51,7 +159,6 @@ class _MyHomePageState extends State<MyHomePage> {
     _loadTasks();
   }
 
-  // 🔹 Load tasks from SharedPreferences
   Future<void> _loadTasks() async {
     final prefs = await SharedPreferences.getInstance();
     final String? tasksJson = prefs.getString('tasks');
@@ -78,7 +185,6 @@ class _MyHomePageState extends State<MyHomePage> {
     }
   }
 
-  // 🔹 Save tasks to SharedPreferences
   Future<void> _saveTasks() async {
     final prefs = await SharedPreferences.getInstance();
     final encoded = jsonEncode(_tasks.map((task) {
@@ -106,15 +212,63 @@ class _MyHomePageState extends State<MyHomePage> {
       },
     );
 
-    if (result != null) {
-      setState(() {
-        if (index != null) {
-          _tasks[index] = result;
-        } else {
-          _tasks.add(result);
+    if (result == null) return;
+
+    final bool isEdit = index != null;
+    String? previousName;
+    int? previousHash;
+    if (isEdit && _tasks.length > index!) {
+      previousName = _tasks[index]['name'];
+      previousHash = previousName.hashCode;
+    }
+
+    if (result['action'] == 'delete') {
+      if (isEdit) {
+        setState(() {
+          _tasks.removeAt(index!);
+        });
+        await _saveTasks();
+
+        if (previousHash != null) {
+          await cancelTaskNotificationsByIdHash(previousHash);
         }
+      }
+      return;
+    }
+
+    final Map<String, dynamic> newTask = {
+      "name": result['name'],
+      "date": result['date'],
+      "time": result['time'],
+      "rawDate": result['rawDate'],
+      "rawTime": result['rawTime'],
+    };
+
+    if (isEdit) {
+      if (previousHash != null) {
+        await cancelTaskNotificationsByIdHash(previousHash);
+      }
+      setState(() {
+        _tasks[index!] = newTask;
       });
-      await _saveTasks();
+    } else {
+      setState(() {
+        _tasks.add(newTask);
+      });
+    }
+
+    await _saveTasks();
+
+    if (newTask['rawDate'] != null && newTask['rawTime'] != null) {
+      final DateTime dueDateTime = DateTime(
+        newTask['rawDate'].year,
+        newTask['rawDate'].month,
+        newTask['rawDate'].day,
+        newTask['rawTime'].hour,
+        newTask['rawTime'].minute,
+      );
+
+      await scheduleTaskNotification(newTask['name'], dueDateTime);
     }
   }
 
@@ -222,12 +376,10 @@ class _TaskFormState extends State<TaskForm> {
     super.initState();
     _txtCtrl = TextEditingController(
         text: widget.existingTask != null ? widget.existingTask!['name'] : '');
-    _slctdate = widget.existingTask != null
-        ? widget.existingTask!['rawDate']
-        : null;
-    _slcttime = widget.existingTask != null
-        ? widget.existingTask!['rawTime']
-        : null;
+    _slctdate =
+    widget.existingTask != null ? widget.existingTask!['rawDate'] : null;
+    _slcttime =
+    widget.existingTask != null ? widget.existingTask!['rawTime'] : null;
   }
 
   String get _fmtDate {
@@ -298,6 +450,7 @@ class _TaskFormState extends State<TaskForm> {
   void _submitData() {
     if (_formKey.currentState!.validate()) {
       final Map<String, dynamic> taskData = {
+        "action": "save",
         "name": _txtCtrl.text,
         "date": _fmtDate,
         "rawDate": _slctdate,
@@ -391,6 +544,19 @@ class _TaskFormState extends State<TaskForm> {
             Navigator.of(context).pop(null);
           },
         ),
+        if (widget.existingTask != null)
+          TextButton(
+            child: const Text(
+              'Delete',
+              style: TextStyle(color: Colors.red),
+            ),
+            onPressed: () {
+              Navigator.of(context).pop({
+                'action': 'delete',
+                'name': widget.existingTask!['name'],
+              });
+            },
+          ),
         ElevatedButton(
           onPressed: _submitData,
           child: const Text("Save"),
