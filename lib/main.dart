@@ -177,6 +177,28 @@ class _MyHomePageState extends State<MyHomePage> {
     _loadTasks();
   }
 
+  void _sortTasks() {
+    _tasks.sort((a, b) {
+      final DateTime dateA = DateTime(
+        a['rawDate'].year,
+        a['rawDate'].month,
+        a['rawDate'].day,
+        a['rawTime'].hour,
+        a['rawTime'].minute,
+      );
+
+      final DateTime dateB = DateTime(
+        b['rawDate'].year,
+        b['rawDate'].month,
+        b['rawDate'].day,
+        b['rawTime'].hour,
+        b['rawTime'].minute,
+      );
+
+      return dateA.compareTo(dateB);
+    });
+  }
+
   Future<void> _loadTasks() async {
     final prefs = await SharedPreferences.getInstance();
     final String? tasksJson = prefs.getString('tasks');
@@ -195,11 +217,15 @@ class _MyHomePageState extends State<MyHomePage> {
                 : null,
           };
         }).toList();
+
+        _sortTasks();
       });
     }
   }
 
   Future<void> _saveTasks() async {
+    _sortTasks();
+
     final prefs = await SharedPreferences.getInstance();
     final encoded = jsonEncode(_tasks.map((task) {
       return {
@@ -218,6 +244,8 @@ class _MyHomePageState extends State<MyHomePage> {
     }).toList());
     await prefs.setString('tasks', encoded);
   }
+
+
 
 
   void _showForm({Map<String, dynamic>? existingTask, int? index}) async {
