@@ -36,10 +36,11 @@ Future<void> initializeNotifications() async {
   }
 }
 
-Future<void> scheduleTaskNotification(String title, DateTime dateTime) async {
+Future<void> scheduleTaskNotification(String id, String title, DateTime dateTime) async {
   final androidPlugin =
   flutterLocalNotificationsPlugin.resolvePlatformSpecificImplementation<
       AndroidFlutterLocalNotificationsPlugin>();
+  final int baseId = id.hashCode;
 
   bool exactAllowed = true;
   if (androidPlugin != null) {
@@ -57,10 +58,17 @@ Future<void> scheduleTaskNotification(String title, DateTime dateTime) async {
 
   const NotificationDetails details = NotificationDetails(android: androidDetails);
 
-  Future<void> safeSchedule(int id, String title, String body, DateTime date) async {
+  Future<void> safeSchedule(int notificationId, String title, String body, DateTime date) async {
     final tzTime = tz.TZDateTime.from(date, tz.local);
+
+    // Check if the scheduled time is in the future (plus a small buffer)
+    if (tzTime.isBefore(tz.TZDateTime.now(tz.local).subtract(const Duration(seconds: 1)))) {
+      debugPrint("Skipping past due notification for: $title (ID: $notificationId)");
+      return;
+    }
+
     await flutterLocalNotificationsPlugin.zonedSchedule(
-      id,
+      notificationId,
       title,
       body,
       tzTime,
@@ -70,11 +78,19 @@ Future<void> scheduleTaskNotification(String title, DateTime dateTime) async {
           : AndroidScheduleMode.inexactAllowWhileIdle,
       matchDateTimeComponents: DateTimeComponents.dateAndTime,
     );
+
+    // DEBUG OUTPUT
+    debugPrint("--- NOTIFICATION SCHEDULED ---");
+    debugPrint("Task: $title");
+    debugPrint("ID: $notificationId");
+    debugPrint("Time: $tzTime");
+    debugPrint("Mode: ${exactAllowed ? 'Exact' : 'Inexact'}");
+    debugPrint("------------------------------");
   }
 
   // 🔔 Main notification at the exact task time
   await safeSchedule(
-    title.hashCode,
+    baseId,
     'Reminder: $title',
     'Your task is due now.',
     dateTime,
@@ -84,7 +100,7 @@ Future<void> scheduleTaskNotification(String title, DateTime dateTime) async {
   final oneDayBefore = dateTime.subtract(const Duration(days: 1));
   if (oneDayBefore.isAfter(DateTime.now())) {
     await safeSchedule(
-      title.hashCode + 1,
+      baseId + 1,
       'Heads up: $title',
       'Your task is due tomorrow.',
       oneDayBefore,
@@ -95,7 +111,7 @@ Future<void> scheduleTaskNotification(String title, DateTime dateTime) async {
   final thirtyMinutesBefore = dateTime.subtract(const Duration(minutes: 30));
   if (thirtyMinutesBefore.isAfter(DateTime.now())) {
     await safeSchedule(
-      title.hashCode + 2,
+      baseId + 2,
       'Upcoming: $title',
       'Your task starts in 30 minutes.',
       thirtyMinutesBefore,
@@ -104,15 +120,17 @@ Future<void> scheduleTaskNotification(String title, DateTime dateTime) async {
 }
 
 // ✅ Cancel notifications for a specific task (using title.hashCode)
-Future<void> cancelTaskNotificationsByIdHash(int idHash) async {
-  await flutterLocalNotificationsPlugin.cancel(idHash);
-  await flutterLocalNotificationsPlugin.cancel(idHash + 1);
-  await flutterLocalNotificationsPlugin.cancel(idHash + 2);
+Future<void> cancelTaskNotificationsByIdHash(String id) async {
+  final int baseId = int.tryParse(id) ?? id.hashCode;
+  await flutterLocalNotificationsPlugin.cancel(baseId);
+  await flutterLocalNotificationsPlugin.cancel(baseId + 1);
+  await flutterLocalNotificationsPlugin.cancel(baseId + 2);
 }
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   tz.initializeTimeZones();
+  tz.setLocalLocation(tz.getLocation("Asia/Manila"));
   await initializeNotifications();
 
   runApp(
@@ -215,11 +233,12 @@ class _MyHomePageState extends State<MyHomePage> {
     if (result == null) return;
 
     final bool isEdit = index != null;
-    String? previousName;
-    int? previousHash;
+    String? previousId;
     if (isEdit && _tasks.length > index!) {
-      previousName = _tasks[index]['name'];
-      previousHash = previousName.hashCode;
+      previousId = _tasks[index]['id'];
+      if(previousId != null){
+        await cancelTaskNotificationsByIdHash(previousId);
+      }
     }
 
     if (result['action'] == 'delete') {
@@ -228,10 +247,6 @@ class _MyHomePageState extends State<MyHomePage> {
           _tasks.removeAt(index!);
         });
         await _saveTasks();
-
-        if (previousHash != null) {
-          await cancelTaskNotificationsByIdHash(previousHash);
-        }
       }
       return;
     }
@@ -245,13 +260,13 @@ class _MyHomePageState extends State<MyHomePage> {
     };
 
     if (isEdit) {
-      if (previousHash != null) {
-        await cancelTaskNotificationsByIdHash(previousHash);
-      }
+      newTask['id'] = previousId;
       setState(() {
         _tasks[index!] = newTask;
       });
     } else {
+      final String newId = DateTime.now().microsecondsSinceEpoch.toString();
+      newTask['id'] = newId;
       setState(() {
         _tasks.add(newTask);
       });
@@ -268,7 +283,7 @@ class _MyHomePageState extends State<MyHomePage> {
         newTask['rawTime'].minute,
       );
 
-      await scheduleTaskNotification(newTask['name'], dueDateTime);
+      await scheduleTaskNotification(newTask['id'],newTask['name'], dueDateTime);
     }
   }
 
