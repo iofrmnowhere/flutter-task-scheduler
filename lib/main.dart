@@ -69,7 +69,7 @@ Future<void> scheduleTaskNotification(String id, String title, DateTime dateTime
   Future<void> safeSchedule(int notificationId, String title, String body, DateTime date) async {
     final tzTime = tz.TZDateTime.from(date, tz.local);
 
-    // Check if the scheduled time is in the future (plus a small buffer)
+    // Check if the scheduled time is in the future
     if (tzTime.isBefore(tz.TZDateTime.now(tz.local).subtract(const Duration(seconds: 1)))) {
       debugPrint("Skipping past due notification for: $title (ID: $notificationId)");
       return;
@@ -96,7 +96,7 @@ Future<void> scheduleTaskNotification(String id, String title, DateTime dateTime
     debugPrint("------------------------------");
   }
 
-  // 🔔 Main notification at the exact task time
+  // exact task time
   await safeSchedule(
     baseId,
     'Reminder: $title',
@@ -104,7 +104,7 @@ Future<void> scheduleTaskNotification(String id, String title, DateTime dateTime
     dateTime,
   );
 
-  // 🔔 1 day before
+  // 1 day before
   final oneDayBefore = dateTime.subtract(const Duration(days: 1));
   if (oneDayBefore.isAfter(DateTime.now())) {
     await safeSchedule(
@@ -115,7 +115,7 @@ Future<void> scheduleTaskNotification(String id, String title, DateTime dateTime
     );
   }
 
-  // 🔔 30 minutes before
+  // 30 minutes before
   final thirtyMinutesBefore = dateTime.subtract(const Duration(minutes: 30));
   if (thirtyMinutesBefore.isAfter(DateTime.now())) {
     await safeSchedule(
@@ -127,11 +127,9 @@ Future<void> scheduleTaskNotification(String id, String title, DateTime dateTime
   }
 }
 
-// ✅ Cancel notifications for a specific task (using task name's hash)
-Future<void> cancelTaskNotificationsByIdHash(String taskName) async {
-  // 2. 🎯 FIX: Generate the base ID from the task name to ensure it's a valid 32-bit int
-  final int baseId = createSafeNotificationId(taskName);
 
+Future<void> cancelTaskNotificationsByIdHash(String taskName) async {
+  final int baseId = createSafeNotificationId(taskName);
   await flutterLocalNotificationsPlugin.cancel(baseId);
   await flutterLocalNotificationsPlugin.cancel(baseId + 1);
   await flutterLocalNotificationsPlugin.cancel(baseId + 2);
@@ -140,7 +138,6 @@ Future<void> cancelTaskNotificationsByIdHash(String taskName) async {
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   tz.initializeTimeZones();
-  // Set the local timezone. Using Asia/Manila as per previous request.
   tz.setLocalLocation(tz.getLocation("Asia/Manila"));
   await initializeNotifications();
 
@@ -297,14 +294,11 @@ class _MyHomePageState extends State<MyHomePage> {
     };
 
     if (isEdit) {
-      // Keep the existing ID for persistence, but use the new name for notification ID
       newTask['id'] = _tasks[index!]['id'];
       setState(() {
         _tasks[index!] = newTask;
       });
     } else {
-      // 3. 🎯 FIX: Generate new ID using a random UUID or consistent unique hash
-      // Sticking with a unique string ID for persistent storage to avoid hash collisions
       final String newId = DateTime.now().millisecondsSinceEpoch.toString();
       newTask['id'] = newId;
       setState(() {
@@ -323,7 +317,6 @@ class _MyHomePageState extends State<MyHomePage> {
         newTask['rawTime'].minute,
       );
 
-      // 4. 🎯 FIX: Pass the task name (which is used for the safe hash) to schedule
       await scheduleTaskNotification(newTask['name'], newTask['name'], dueDateTime);
     }
   }
