@@ -13,6 +13,12 @@ import 'Themes/theme_provider.dart';
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
 FlutterLocalNotificationsPlugin();
 
+
+int createSafeNotificationId(String taskName) {
+
+  return taskName.hashCode.abs();
+}
+
 Future<void> initializeNotifications() async {
   const AndroidInitializationSettings initSettingsAndroid =
   AndroidInitializationSettings('@mipmap/ic_launcher');
@@ -22,7 +28,7 @@ Future<void> initializeNotifications() async {
 
   await flutterLocalNotificationsPlugin.initialize(initSettings);
 
-  // ✅ Request permission for exact alarms (Android 12+)
+
   final bool? granted = await flutterLocalNotificationsPlugin
       .resolvePlatformSpecificImplementation<
       AndroidFlutterLocalNotificationsPlugin>()
@@ -30,9 +36,9 @@ Future<void> initializeNotifications() async {
 
   if (granted == false) {
     debugPrint(
-        "⚠️ Exact alarm permission NOT granted. Notifications may be delayed.");
+        "Exact alarm permission NOT granted. Notifications may be delayed.");
   } else {
-    debugPrint("✅ Exact alarm permission granted or not required.");
+    debugPrint("Exact alarm permission granted or not required.");
   }
 }
 
@@ -40,7 +46,9 @@ Future<void> scheduleTaskNotification(String id, String title, DateTime dateTime
   final androidPlugin =
   flutterLocalNotificationsPlugin.resolvePlatformSpecificImplementation<
       AndroidFlutterLocalNotificationsPlugin>();
-  final int baseId = id.hashCode;
+
+
+  final int baseId = createSafeNotificationId(title);
 
   bool exactAllowed = true;
   if (androidPlugin != null) {
@@ -119,9 +127,11 @@ Future<void> scheduleTaskNotification(String id, String title, DateTime dateTime
   }
 }
 
-// ✅ Cancel notifications for a specific task (using title.hashCode)
-Future<void> cancelTaskNotificationsByIdHash(String id) async {
-  final int baseId = int.tryParse(id) ?? id.hashCode;
+// ✅ Cancel notifications for a specific task (using task name's hash)
+Future<void> cancelTaskNotificationsByIdHash(String taskName) async {
+  // 2. 🎯 FIX: Generate the base ID from the task name to ensure it's a valid 32-bit int
+  final int baseId = createSafeNotificationId(taskName);
+
   await flutterLocalNotificationsPlugin.cancel(baseId);
   await flutterLocalNotificationsPlugin.cancel(baseId + 1);
   await flutterLocalNotificationsPlugin.cancel(baseId + 2);
@@ -130,6 +140,7 @@ Future<void> cancelTaskNotificationsByIdHash(String id) async {
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   tz.initializeTimeZones();
+  // Set the local timezone. Using Asia/Manila as per previous request.
   tz.setLocalLocation(tz.getLocation("Asia/Manila"));
   await initializeNotifications();
 
@@ -207,7 +218,7 @@ class _MyHomePageState extends State<MyHomePage> {
       setState(() {
         _tasks = decoded.map((task) {
           return {
-            "id": task['id'],              // ✅ ADD THIS
+            "id": task['id'],
             "name": task['name'],
             "date": task['date'],
             "time": task['time'],
@@ -229,7 +240,7 @@ class _MyHomePageState extends State<MyHomePage> {
     final prefs = await SharedPreferences.getInstance();
     final encoded = jsonEncode(_tasks.map((task) {
       return {
-        "id": task['id'],              // ✅ ADD THIS
+        "id": task['id'],
         "name": task['name'],
         "date": task['date'],
         "time": task['time'],
@@ -259,11 +270,11 @@ class _MyHomePageState extends State<MyHomePage> {
     if (result == null) return;
 
     final bool isEdit = index != null;
-    String? previousId;
+    String? previousName;
     if (isEdit && _tasks.length > index!) {
-      previousId = _tasks[index]['id'];
-      if(previousId != null){
-        await cancelTaskNotificationsByIdHash(previousId);
+      previousName = _tasks[index]['name']; // Get the name to cancel notifications
+      if(previousName != null){
+        await cancelTaskNotificationsByIdHash(previousName);
       }
     }
 
@@ -286,12 +297,15 @@ class _MyHomePageState extends State<MyHomePage> {
     };
 
     if (isEdit) {
-      newTask['id'] = previousId;
+      // Keep the existing ID for persistence, but use the new name for notification ID
+      newTask['id'] = _tasks[index!]['id'];
       setState(() {
         _tasks[index!] = newTask;
       });
     } else {
-      final String newId = DateTime.now().microsecondsSinceEpoch.toString();
+      // 3. 🎯 FIX: Generate new ID using a random UUID or consistent unique hash
+      // Sticking with a unique string ID for persistent storage to avoid hash collisions
+      final String newId = DateTime.now().millisecondsSinceEpoch.toString();
       newTask['id'] = newId;
       setState(() {
         _tasks.add(newTask);
@@ -309,7 +323,8 @@ class _MyHomePageState extends State<MyHomePage> {
         newTask['rawTime'].minute,
       );
 
-      await scheduleTaskNotification(newTask['id'],newTask['name'], dueDateTime);
+      // 4. 🎯 FIX: Pass the task name (which is used for the safe hash) to schedule
+      await scheduleTaskNotification(newTask['name'], newTask['name'], dueDateTime);
     }
   }
 
@@ -351,7 +366,14 @@ class _MyHomePageState extends State<MyHomePage> {
           )
         ],
       ),
-      body: ListView.builder(
+      body: _tasks.isEmpty
+          ? Center(
+        child: Text(
+          'No tasks added yet. Tap the + to create one!',
+          style: TextStyle(color: Theme.of(context).textTheme.bodyLarge?.color?.withOpacity(0.6)),
+        ),
+      )
+          : ListView.builder(
         itemCount: _tasks.length,
         itemBuilder: (context, index) {
           final task = _tasks[index];
