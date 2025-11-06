@@ -185,17 +185,13 @@ class _MyHomePageState extends State<MyHomePage> {
       setState(() {
         _tasks = decoded.map((task) {
           return {
+            "id": task['id'],              // ✅ ADD THIS
             "name": task['name'],
             "date": task['date'],
             "time": task['time'],
-            "rawDate": task['rawDate'] != null
-                ? DateTime.parse(task['rawDate'])
-                : null,
+            "rawDate": task['rawDate'] != null ? DateTime.parse(task['rawDate']) : null,
             "rawTime": task['rawTime'] != null
-                ? TimeOfDay(
-              hour: task['rawTime']['hour'],
-              minute: task['rawTime']['minute'],
-            )
+                ? TimeOfDay(hour: task['rawTime']['hour'], minute: task['rawTime']['minute'])
                 : null,
           };
         }).toList();
@@ -207,6 +203,7 @@ class _MyHomePageState extends State<MyHomePage> {
     final prefs = await SharedPreferences.getInstance();
     final encoded = jsonEncode(_tasks.map((task) {
       return {
+        "id": task['id'],              // ✅ ADD THIS
         "name": task['name'],
         "date": task['date'],
         "time": task['time'],
@@ -221,6 +218,7 @@ class _MyHomePageState extends State<MyHomePage> {
     }).toList());
     await prefs.setString('tasks', encoded);
   }
+
 
   void _showForm({Map<String, dynamic>? existingTask, int? index}) async {
     final result = await showDialog<Map<String, dynamic>>(
