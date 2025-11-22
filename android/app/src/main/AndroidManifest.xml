@@ -7,7 +7,7 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
 
     <application
-        android:label="untitled1"
+        android:label="Task Scheduler"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
 
